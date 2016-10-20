@@ -1,0 +1,19 @@
+---
+
+- name: Gather existing webservers
+  shell: aws ec2 describe-instances --filter Name=tag:Name,Values=webserver,Name=vpc-id,Values="{{ vpc_id }}" | grep InstanceId | awk -F '\"' '{print $4}'
+  register: webserver_ids
+
+- name: Remove the webservers detected
+  shell: aws ec2 terminate-instances --instance-ids "{{ item }}"
+  with_items: "{{ webserver_ids.stdout_lines }}"
+  register: removal_output
+
+- name: Remove Load Balancers
+  ec2_elb_lb:
+    name: "http-balancer"
+    state: absent
+    region: "{{ aws_region }}"
+  register: elb_delete
+
+- debug: var=elb_delete

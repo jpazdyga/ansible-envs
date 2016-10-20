@@ -1,0 +1,22 @@
+---
+
+- name: Fetch the VPC subnets and determine the Public one
+  include: fetch_subnets.yml
+
+- name: Gather existing webservers
+  shell: aws ec2 describe-instances --filter Name=tag:Name,Values=webserver,Name=vpc-id,Values="{{ vpc_id }}" | grep InstanceId | awk -F '\"' '{print $4}'
+  register: webserver_ids
+
+- include: webservers.yml
+
+- name: Gather existing webservers
+  shell: aws ec2 describe-instances --filter Name=tag:Name,Values=webserver,Name=vpc-id,Values="{{ vpc_id }}" | grep InstanceId | awk -F '\"' '{print $4}'
+  register: webserver_ids
+
+- name: Set up Apache
+  include: apache.yml
+
+- name: Wait for webservers to be responsive
+  pause: 60
+
+- include: elb.yml

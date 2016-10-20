@@ -1,0 +1,61 @@
+---
+
+- name: Install Apache rpm
+#  shell: zypper -n install apache2
+  zypper:
+    name: apache2
+    state: latest
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Install PHP rpm
+  zypper:
+    name: php5
+    state: latest
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Install php5-mysql rpm
+  zypper:
+    name: php5-mysql
+    state: latest  
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Create vhost configuration
+  copy:
+    src: 'testing.conf'
+    dest: '/etc/apache2/vhosts.d/testing.conf'
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Create vhost's root directory
+  file:
+    path: '/srv/www/vhosts/testing.pazdyga.pl'
+    state: directory
+    recurse: yes
+    owner: wwwrun
+    group: www
+    mode: 0755
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Create html index
+  copy:
+    src: index.html
+    dest: '/srv/www/vhosts/testing.pazdyga.pl/index.html'
+    owner: wwwrun
+    group: www
+    mode: 0755
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"
+
+- name: Start Apache service
+  service:
+    name: apache2
+    state: restarted
+  delegate_to: "{{ item }}"
+  with_items: "{{ groups.webserver }}"

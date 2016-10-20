@@ -1,0 +1,145 @@
+---
+
+# Create the VPC
+
+- name: Create Development VPC
+  ec2_vpc_net:
+    name: "{{ dev_vpc_name }}"
+    cidr_block: "{{ dev_vpc_cidr_block }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    state: "present"
+  register: dev_vpc
+
+- name: Set VPC ID in variable
+  set_fact:
+    dev_vpc_id: "{{ dev_vpc.vpc.id }}"
+
+
+# Subnets
+
+- name: Create Private Subnet
+  ec2_vpc_subnet:
+    state: "present"
+    vpc_id: "{{ dev_vpc_id }}"
+    cidr: "{{ dev_private_subnet_1_cidr }}"
+    az: "{{ aws_region }}a"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    resource_tags:
+      Name: "Development Private Subnet"
+  register: dev_private_subnet
+
+- name: Set Private Subnet ID in variable
+  set_fact:
+    dev_private_subnet_id: "{{ dev_private_subnet.subnet.id }}"
+
+
+# Internet Gateway.
+
+- name: Create Internet Gateway for VPC
+  ec2_vpc_igw:
+    vpc_id: "{{ dev_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    state: "present"
+  register: dev_vpc_igw
+
+- name: Set Internet Gateway ID in variable
+  set_fact:
+    dev_igw_id: "{{ dev_vpc_igw.gateway_id }}"
+
+# Elastic IP.
+
+- name: Setup AWS CLI (1/3)
+  shell: aws configure set aws_access_key_id "{{ aws_access_key }}"
+
+- name: Setup AWS CLI (2/3)
+  shell: aws configure set aws_secret_access_key "{{ aws_secret_key }}"
+
+- name: Setup AWS CLI (3/3)
+  shell: aws configure set region {{ aws_region }}
+
+- name: Create Elastic IP
+  shell: aws ec2 allocate-address --domain vpc --query AllocationId | tr -d '"'
+  register: eip
+
+- debug: var=eip
+
+- name: Set EIP in variable
+  set_fact:
+    dev_elastic_ip: "{{ eip.stdout }}"
+
+# NAT Gateway.
+
+- name: Create NAT Gateway
+  shell: aws ec2 create-nat-gateway \
+    --subnet-id {{ dev_private_subnet_id }} \
+    --allocation-id {{ dev_elastic_ip }} \
+    --query NatGateway.NatGatewayId | tr -d '"'
+  register: dev_nat_gateway
+
+- name: Set Nat Gateway ID in variable
+  set_fact:
+    dev_nat_gateway_id: "{{ dev_nat_gateway.stdout }}"
+
+
+# We pause a few seconds for the NAT Gateway to be ready
+
+- name: Pause for a few seconds for the NAT Gateway to be ready
+  pause: seconds=30
+
+# Route Tables.
+
+- name: Set up private subnet route table
+  ec2_vpc_route_table:
+    vpc_id: "{{ dev_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    tags:
+      Name: "Private"
+    subnets:
+      - "{{ dev_private_subnet_id }}"
+    routes:
+      - dest: "0.0.0.0/0"
+        gateway_id: "{{ dev_nat_gateway_id }}"
+
+
+# Security Groups.
+
+- name: Create Main Security Group
+  ec2_group:
+    name: "External SSH Access"
+    description: "External SSH Access"
+    vpc_id: "{{ dev_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    rules:
+      - proto: "tcp"
+        from_port: "22"
+        to_port: "22"
+        cidr_ip: "{{ my_ip }}/32"
+  register: dev_main_sg
+
+- name: Set Main SG ID
+  set_fact:
+    dev_main_sg_id: "{{ dev_main_sg.group_id }}"
+
+- name: Create Private Security Group
+  ec2_group:
+    name: "Private Instances SG"
+    description: "Private Instances SG"
+    vpc_id: "{{ dev_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    rules:
+      - proto: "tcp"
+        from_port: "22"
+        to_port: "22"
+        group_id: "{{ dev_main_sg_id }}"

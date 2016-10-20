@@ -1,0 +1,12 @@
+---
+
+- hosts: 127.0.0.1
+  vars_files:
+    - 'vars/defaults.yml'
+    - 'vars/vault.yml'
+  gather_facts: True
+  tasks:
+#    - name: Display all variables/facts known this host
+#      debug: var=hostvars[inventory_hostname]
+  roles:
+    - role: remove_vpc

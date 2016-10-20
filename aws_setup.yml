@@ -1,0 +1,13 @@
+---
+
+- hosts: 127.0.0.1
+  vars_files:
+    - 'vars/defaults.yml'
+    - 'vars/vault.yml'
+  tasks:
+#    - name: Display all variables/facts known this host
+#      debug: var=hostvars[inventory_hostname]
+  roles:
+    - role: aws-production
+    - role: aws-test
+    - role: aws-development

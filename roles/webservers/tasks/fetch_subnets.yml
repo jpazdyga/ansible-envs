@@ -1,0 +1,28 @@
+---
+
+- name: Fetch subnets
+  shell: aws ec2 describe-subnets --filter Name=vpc-id,Values="{{ vpc_id }}" | grep SubnetId | awk -F'\"' '{print $4}'
+  register: subnets_describe
+
+- debug: var=subnets_describe
+
+- name: Describe the Subnet
+  set_fact:
+    vpc_subnet_details: "{{ subnets_describe.stdout_lines }}"
+
+- name: Check if subnet is Public
+  shell: aws ec2 describe-subnets --subnet-ids "{{ item }}" | grep "Value" | grep "Public"
+  with_items: "{{ vpc_subnet_details }}"
+  register: subnet_public
+  ignore_errors: true
+
+#- debug: var=subnet_public
+
+#- debug: msg="item.item={{item.item}}, item.stdout={{item.stdout}}, item.changed={{item.changed}}"
+#  with_items: "{{ subnet_public.results }}"
+
+- name: Set the Public net ID
+  set_fact:
+    vpc_subnet_id: "{{ item.item }}"
+  when: item.stdout != ""
+  with_items: "{{subnet_public.results}}"

@@ -1,0 +1,15 @@
+---
+
+- hosts: 127.0.0.1
+  vars_files:
+    - 'vars/defaults.yml'
+    - 'vars/vault.yml'
+  tasks:
+    - name: ansible ec2 key
+      ec2_key:
+        name: ansible
+        region: "{{ aws_region }}"
+        wait: true
+        key_material: "{{ item }}"
+      with_file: ~/.ssh/id_rsa.pub
+  roles:

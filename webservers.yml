@@ -1,0 +1,19 @@
+---
+
+- hosts: 127.0.0.1
+  vars_files:
+    - 'vars/defaults.yml'
+    - 'vars/vault.yml'
+  vars:
+    instance_type: t1.micro
+    security_group: webserver
+    image: ami-3052ec43
+    keypair: ansibleuser
+    assign_public_ip: true
+    count: 2
+
+  tasks:
+#    - name: Display all variables/facts known this host
+#      debug: var=hostvars[inventory_hostname]
+  roles:
+    - role: webservers

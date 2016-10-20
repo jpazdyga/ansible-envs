@@ -1,0 +1,36 @@
+---
+
+aws_region: "eu-west-1"
+my_ip:          "89.25.222.90"
+
+##
+# Development VPC Information
+##
+
+dev_vpc_name:       "Development VPC"
+dev_vpc_cidr_block: "172.1.0.0/16"
+
+# Development Subnets
+dev_private_subnet_1_cidr: "172.1.1.0/24"
+
+##
+# Production VPC Information
+##
+
+prod_vpc_name: "Production VPC"
+prod_vpc_cidr_block: "172.3.0.0/16"
+
+# Subnets
+prod_private_subnet_1_cidr: "172.3.1.0/24"
+prod_public_subnet_1_cidr:  "172.3.100.0/24"
+
+##
+# Testing VPC Information
+##
+
+test_vpc_name:       "Testing VPC"
+test_vpc_cidr_block: "172.2.0.0/16"
+
+# Subnets
+test_private_subnet_1_cidr: "172.2.1.0/24"
+test_public_subnet_1_cidr:  "172.2.100.0/24"

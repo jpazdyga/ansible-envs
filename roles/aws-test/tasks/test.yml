@@ -1,0 +1,183 @@
+---
+
+# Create the VPC
+
+- name:               Create Test VPC
+  ec2_vpc_net:
+    name:             "{{ test_vpc_name }}"
+    cidr_block:       "{{ test_vpc_cidr_block }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    state:            "present"
+  register: test_vpc
+
+- name:               Set VPC ID in variable
+  set_fact:
+    test_vpc_id:           "{{ test_vpc.vpc.id }}"
+
+
+# Subnets
+
+- name:               Create Public Subnet
+  ec2_vpc_subnet:
+    state:            "present"
+    vpc_id:           "{{ test_vpc_id }}"
+    cidr:             "{{ test_public_subnet_1_cidr }}"
+    az:               "{{ aws_region }}a"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    resource_tags:
+      Name:           "Test Public Subnet"
+  register: test_public_subnet
+
+- name:               Set Test Public Subnet ID in variable
+  set_fact:
+    test_public_subnet_id: "{{ test_public_subnet.subnet.id }}"
+
+- name:               Create Private Subnet
+  ec2_vpc_subnet:
+    state:            "present"
+    vpc_id:           "{{ test_vpc_id }}"
+    cidr:             "{{ test_private_subnet_1_cidr }}"
+    az:               "{{ aws_region }}a"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    resource_tags:
+      Name:           "Test Private Subnet"
+  register: test_private_subnet
+
+- name:               Set Private Subnet ID in variable
+  set_fact:
+    test_private_subnet_id: "{{ test_private_subnet.subnet.id }}"
+
+
+# Internet Gateway.
+
+- name:               Create Internet Gateway for VPC
+  ec2_vpc_igw:
+    vpc_id:           "{{ test_vpc_id }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    state:            "present"
+  register: test_vpc_igw
+
+- name:               Set Internet Gateway ID in variable
+  set_fact:
+    test_igw_id:           "{{ test_vpc_igw.gateway_id }}"
+
+
+# Elastic IP.
+
+- name: Setup AWS CLI (1/3)
+  shell: >
+    aws configure set aws_access_key_id "{{ aws_access_key }}"
+
+- name: Setup AWS CLI (2/3)
+  shell: >
+    aws configure set aws_secret_access_key "{{ aws_secret_key }}"
+
+- name: Setup AWS CLI (3/3)
+  shell: >
+    aws configure set region {{ aws_region }}
+
+- name: Create Elastic IP
+  shell: >
+      aws ec2 allocate-address --domain vpc --query AllocationId | tr -d '"'
+  register: eip
+
+- debug: var=eip
+
+- name: Set EIP in variable
+  set_fact:
+    test_elastic_ip: "{{ eip.stdout }}"
+
+
+# NAT Gateway.
+
+- name: Create NAT Gateway
+  shell: >
+    aws ec2 create-nat-gateway \
+    --subnet-id {{ test_public_subnet_id }} \
+    --allocation-id {{ test_elastic_ip }} \
+    --query NatGateway.NatGatewayId | tr -d '"'
+  register: test_nat_gateway
+
+- name: Set Nat Gateway ID in variable
+  set_fact:
+    test_nat_gateway_id: "{{ test_nat_gateway.stdout }}"
+
+
+# We pause a few seconds for the NAT Gateway to be ready.
+
+- pause: seconds=30
+
+
+# Route Tables.
+
+- name: Set up public subnet route table
+  ec2_vpc_route_table:
+    vpc_id: "{{ test_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    tags:
+      Name: "Public"
+    subnets:
+      - "{{ test_public_subnet_id }}"
+    routes:
+      - dest: "0.0.0.0/0"
+        gateway_id: "{{ test_igw_id }}"
+
+- name: Set up private subnet route table
+  ec2_vpc_route_table:
+    vpc_id: "{{ test_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    tags:
+      Name: "Private"
+    subnets:
+      - "{{ test_private_subnet_id }}"
+    routes:
+      - dest: "0.0.0.0/0"
+        gateway_id: "{{ test_nat_gateway_id }}"
+
+
+# Security Groups.
+
+- name: Create Main Security Group
+  ec2_group:
+    name: "External SSH Access"
+    description: "External SSH Access"
+    vpc_id: "{{ test_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    rules:
+      - proto: "tcp"
+        from_port: "22"
+        to_port: "22"
+        cidr_ip: "{{ my_ip }}/32"
+  register: test_main_sg
+
+- name: Set Main SG ID
+  set_fact:
+    test_main_sg_id: "{{ test_main_sg.group_id }}"
+
+- name: Create Private Security Group
+  ec2_group:
+    name: "Private Instances SG"
+    description: "Private Instances SG"
+    vpc_id: "{{ test_vpc_id }}"
+    region: "{{ aws_region }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    rules:
+      - proto: "tcp"
+        from_port: "22"
+        to_port: "22"
+        group_id: "{{ test_main_sg_id }}"
