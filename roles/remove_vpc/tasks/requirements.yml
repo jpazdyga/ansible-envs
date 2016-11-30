@@ -1,0 +1,8 @@
+---
+
+- name: Place boto credentials file
+  template:
+    src: roles/remove_vpc/templates/boto.j2
+    dest: ~/.boto
+  become: yes
+  become_user: root

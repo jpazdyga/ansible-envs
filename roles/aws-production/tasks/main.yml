@@ -1,0 +1,6 @@
+---
+
+- name: Install the requirements
+  include: requirements.yml
+
+- include: production.yml

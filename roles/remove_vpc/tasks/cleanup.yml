@@ -1,0 +1,230 @@
+---
+
+- name: Setup AWS CLI (1/3)
+  shell: >
+    aws configure set aws_access_key_id "{{ aws_access_key }}"
+
+- name: Setup AWS CLI (2/3)
+  shell: >
+    aws configure set aws_secret_access_key "{{ aws_secret_key }}"
+
+- name: Setup AWS CLI (3/3)
+  shell: >
+    aws configure set region {{ aws_region }}
+
+- name: Gather NAT Gateway facts
+  shell: aws ec2 describe-nat-gateways --filter Name=vpc-id,Values={{ vpc_id }},Name=state,Values=available | grep NatGatewayId | awk -F '\"' '{print $4}'
+  register: nat_describe
+
+- name: Gather Network Interface Id
+  shell: aws ec2 describe-nat-gateways --filter Name=vpc-id,Values={{ vpc_id }},Name=state,Values=available | grep NetworkInterfaceId | awk -F '\"' '{print $4}'
+  register: eni_describe
+
+- name: Gather Network Interface Public IP address
+  shell: aws ec2 describe-nat-gateways --filter Name=vpc-id,Values={{ vpc_id }},Name=state,Values=available | grep PublicIp | awk -F '\"' '{print $4}'
+  register: public_eni_address
+
+- name: Gather Network Interface allocation ID
+  shell: aws ec2 describe-nat-gateways --filter Name=vpc-id,Values={{ vpc_id }},Name=state,Values=available | grep AllocationId | awk -F '\"' '{print $4}'
+  register: eni_allocation_id
+
+- name: Set VPC ID in variable
+  set_fact:
+    nat_id: "{{ nat_describe.stdout }}"
+
+- name: Set ENI ID in variable
+  set_fact:
+    eni_id: "{{ eni_describe.stdout }}"
+
+- name: Set ENI Public IP
+  set_fact:
+    eni_public_ip: "{{ public_eni_address.stdout }}"
+
+- name: Set ENI Allocation ID
+  set_fact:
+    eni_allocation_id: "{{ eni_allocation_id.stdout_lines }}"
+
+- name: Remove nat gateway
+  command: aws ec2 delete-nat-gateway --nat-gateway-id "{{ item }}"
+  args:
+#    wait: true
+  async: 300
+  poll: 60
+  with_items: "{{ nat_id }}"
+  register: nat_gateway_removal_output
+  ignore_errors: true
+  when: nat_id != ""
+
+- name: Gather orphaned EIPs details
+  shell: aws ec2 describe-addresses | grep PublicIp | awk -F '\"' '{print $4}'
+  register: orphaned_eni_describe
+  when: eni_id == ""
+
+- name: Release EIPs
+  shell: aws ec2 release-address --allocation-id "{{ item }}"
+  async: 300
+  poll: 60
+  when: eni_id != ""
+  with_items: "{{ eni_allocation_id }}"
+  register: eip_removal_output
+  ignore_errors: true
+
+- debug: var=eip_removal_output
+
+- name: Set orphaned ENI ID in variable
+  set_fact:
+    orphaned_eni_id: "{{ orphaned_eni_describe.stdout_lines }}"
+  when: eni_id == ""
+
+- name: Remove orphaned EIPs
+  ec2_eip:
+    state: absent
+    public_ip: "{{ item }}"
+    release_on_disassociation: true
+    region: "{{ aws_region }}"
+  with_items: "{{ orphaned_eni_id }}"
+  async: 300
+  poll: 60
+  when: eni_id == ""
+  ignore_errors: true
+
+- name: Gather Internet Gateway details
+  shell: aws ec2 describe-internet-gateways --filter Name=attachment.vpc-id,Values="{{ vpc_id }}" | grep InternetGatewayId  | tail -1 | awk -F '\"' '{print $4}'
+  register: igw_describe
+
+- debug: var=igw_describe
+
+- name: Set Internet Gateway ID
+  set_fact:
+    igw_id: "{{ igw_describe.stdout }}"
+
+- name: Detach Internet Gateway
+  shell: aws ec2 detach-internet-gateway --internet-gateway-id="{{ igw_id }}" --vpc-id="{{ vpc_id }}"
+  register: igw_removal_output
+  ignore_errors: true
+  when: igw_id != ""
+
+- name: Remove Internet Gateway
+  shell: aws ec2 delete-internet-gateway --internet-gateway-id "{{ item }}"
+## Why it doesn't work when using ansible module?
+#  ec2_vpc_igw:
+#    vpc_id: "{{ vpc_id }}"
+#    state: absent
+#    region: "{{ aws_region }}"
+  with_items: "{{ igw_id }}"
+  register: igw_removal_output
+  async: 300
+  poll: 5
+  ignore_errors: true
+  when: igw_id != ""
+
+- debug: var=igw_removal_output
+
+#- name: Remove nat gateway
+#  command: aws ec2 delete-nat-gateway --nat-gateway-id "{{ item }}"
+#  async: 300
+#  poll: 5
+#  with_items: "{{ nat_id }}"
+#  register: nat_gateway_removal_output
+#  ignore_errors: true
+#  when: nat_id != ""
+
+### This should work, but it's not...
+##  ec2_vpc_nat_gateway:
+##    state: absent
+##    nat_gateway_id: "{{ nat_id }}"
+##    release_eip: yes
+##    wait: yes
+##    wait_timeout: 300
+##    region: "{{ aws_region }}"
+
+#- debug: var=nat_gateway_removal_output
+
+- name: Fetch subnets
+  shell: aws ec2 describe-subnets --filter Name=vpc-id,Values="{{ vpc_id }}" | grep SubnetId | awk -F'\"' '{print $4}'
+  register: subnets_describe
+
+- name: Fetch Network ACLs
+  shell: aws ec2 describe-network-acls --filter Name=vpc-id,Values="{{ vpc_id }}" | grep NetworkAclId | awk -F '\"' '{print $4}'
+  register: acls_describe
+
+- name: Fetch Security Groups details
+  shell: aws ec2 describe-security-groups --filters Name=vpc-id,Values="{{ vpc_id }}" | grep GroupId | awk -F '\"' '{print $4}' | uniq
+  register: sg_describe
+
+- name: Gather Route Table details
+  shell: aws ec2 describe-route-tables --filter Name=vpc-id,Values="{{ vpc_id }}" | grep RouteTableId | awk -F '\"' '{print $4}' | sort -r
+  register: rtb_describe
+
+- name: Set Subnets ID
+  set_fact:
+    subnets_id: "{{ subnets_describe.stdout_lines }}"
+
+- debug: var=subnets_id
+
+- name: Set ACLs ID
+  set_fact:
+    acls_id: "{{ acls_describe.stdout_lines }}"
+
+- name: Set RTB ID in variable
+  set_fact:
+    rtb_id: "{{ rtb_describe.stdout_lines }}"
+
+- name: Set SG ID in variable
+  set_fact:
+    sg_id: "{{ sg_describe.stdout_lines }}"
+
+- debug: var=rtb_id
+
+- debug: var=sg_id
+
+- debug: var=subnets_id
+
+- debug: var=acls_id
+
+- name: Remove Subnets
+  shell: aws ec2 delete-subnet --subnet-id "{{ item }}"
+  with_items: "{{ subnets_id }}"
+  async: 300
+  poll: 5
+  register: subnet_removal_output
+  ignore_errors: true
+
+- debug: var=subnet_removal_output
+
+- name: Remove ACLs
+  shell: aws ec2 delete-network-acl --network-acl-id "{{ item }}"
+  with_items: "{{ acls_id }}"
+  async: 300
+  poll: 5
+  register: acl_removal_output
+  ignore_errors: true
+
+- name: Remove Security Groups
+  shell: aws ec2 delete-security-group --group-id "{{ item }}"
+  with_items: "{{ sg_id }}"
+  async: 300
+  poll: 5
+  register: sg_removal_output
+  ignore_errors: true
+
+- debug: var=sg_removal_output
+
+- name: Get route entries for each Route Table
+  shell: aws ec2 describe-route-tables --filter Name=vpc-id,Values="{{ item }}",Name=route-table-id,Values="{{ item }}"
+  with_items: "{{ rtb_id }}"
+  register: route_entries
+
+- name: Remove Route Table
+  shell: aws ec2 delete-route-table --route-table-id "{{ item }}"
+  with_items: "{{ rtb_id }}"
+  register: rtb_removal_output
+  ignore_errors: true
+
+- debug: var=rtb_removal_output
+
+- name: Remove VPC by given ID
+  shell: aws ec2 delete-vpc --vpc-id "{{ vpc_id }}"
+  register: vpc_removal_output
+
+- debug: var=vpc_removal_output

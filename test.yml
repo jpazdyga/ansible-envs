@@ -1,0 +1,15 @@
+---
+
+- hosts: 127.0.0.1
+  vars_files:
+    - 'vars/defaults.yml'
+    - 'vars/vault.yml'
+  tasks:
+    - name: Gather EC2 facts.
+      ec2_remote_facts:
+       region: us-east-1
+      register: ec2_facts
+
+    - name: Debug
+      debug:
+        msg: "{{ ec2_facts }}"

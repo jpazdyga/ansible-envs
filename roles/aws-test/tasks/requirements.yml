@@ -1,0 +1,37 @@
+---
+
+- name: Install pip
+  shell: pip install --upgrade pip
+  become: yes
+  become_user: root
+
+- name: Install awscli
+  shell: pip install awscli
+  become: yes
+  become_user: root
+
+- name: Install boto
+  shell: pip install boto
+  become: yes
+  become_user: root
+
+- name: Create aws config directory
+  file:
+    path: ~/.aws
+    state: directory
+  become: yes
+  become_user: root
+
+- name: Deploy the aws config
+  template:
+    src: aws_config.j2
+    dest: ~/.aws/config
+  become: yes
+  become_user: root
+
+- name: Deploy the aws credentials
+  template:
+    src: aws_credentials.j2
+    dest: ~/.aws/credentials
+  become: yes
+  become_user: root

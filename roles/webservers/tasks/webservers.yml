@@ -1,0 +1,66 @@
+---
+
+- name: Create a security group
+  local_action: 
+    module: ec2_group
+    name: "{{ security_group }}"
+    description: Security Group for webserver Servers
+    region: "{{ aws_region }}"
+    vpc_id: "{{ vpc_id }}"
+    rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+    rules_egress:
+      - proto: all
+        cidr_ip: 0.0.0.0/0
+
+- debug: var=webserver_ids
+
+- name: Launch the new EC2 Instance
+  local_action: ec2 
+    group="{{ security_group }}"
+    instance_type="{{ instance_type}}"
+    image="{{ image }}"
+    wait=true 
+    region="{{ aws_region }}" 
+    keypair="{{ keypair }}"
+    count="{{ count }}"
+    vpc_subnet_id="{{ vpc_subnet_id }}"
+    assign_public_ip="{{ assign_public_ip }}"
+  register: ec2
+  when: webserver_ids.stdout == ""
+
+- name: Add the newly created EC2 instance(s) to the local host group (located inside the directory)
+  local_action: lineinfile 
+    dest="./inventory/hosts" 
+    regexp="{{ item.public_ip }}"
+    insertafter="[webserver]" line={{ item.public_ip }}
+  with_items: ec2.instances
+  when: webserver_ids.stdout == ""
+
+- name: Add new hosts to inventory
+  add_host: group=webserver name="{{ item.public_ip }}"
+  with_items: ec2.instances
+  when: webserver_ids.stdout == ""
+
+- name: Wait for SSH to come up
+  local_action: wait_for 
+    host="{{ item.public_ip }}"
+    port=22 
+    state=started
+  with_items: ec2.instances
+  when: webserver_ids.stdout == ""
+
+- name: Add tag to Instance(s)
+  local_action: ec2_tag resource="{{ item.id }}" region="{{ aws_region }}" state=present
+  with_items: ec2.instances
+  args:
+    tags:
+      Name: webserver
+  when: webserver_ids.stdout == ""
