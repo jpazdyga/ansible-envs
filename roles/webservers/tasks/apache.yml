@@ -1,5 +1,6 @@
 ---
 
+<<<<<<< HEAD
 - debug: var=groups.webserver
 
 - name: Install Apache rpm
